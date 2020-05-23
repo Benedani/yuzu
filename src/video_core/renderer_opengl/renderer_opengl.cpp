@@ -321,7 +321,7 @@ public:
 RendererOpenGL::RendererOpenGL(Core::Frontend::EmuWindow& emu_window, Core::System& system,
                                Core::Frontend::GraphicsContext& context)
     : RendererBase{emu_window}, emu_window{emu_window}, system{system}, context{context},
-      has_debug_tool{HasDebugTool()} {}
+      program_manager{device}, has_debug_tool{HasDebugTool()} {}
 
 RendererOpenGL::~RendererOpenGL() = default;
 
@@ -473,8 +473,9 @@ void RendererOpenGL::InitOpenGLObjects() {
     vertex_program.Create(true, false, vertex_shader.handle);
     fragment_program.Create(true, false, fragment_shader.handle);
 
-    // Create program pipeline
-    program_manager.Create();
+    pipeline.Create();
+    glUseProgramStages(pipeline.handle, GL_VERTEX_SHADER_BIT, vertex_program.handle);
+    glUseProgramStages(pipeline.handle, GL_FRAGMENT_SHADER_BIT, fragment_program.handle);
 
     // Generate VBO handle for drawing
     vertex_buffer.Create();
@@ -513,7 +514,7 @@ void RendererOpenGL::CreateRasterizer() {
     if (rasterizer) {
         return;
     }
-    rasterizer = std::make_unique<RasterizerOpenGL>(system, emu_window, screen_info,
+    rasterizer = std::make_unique<RasterizerOpenGL>(system, emu_window, device, screen_info,
                                                     program_manager, state_tracker);
 }
 
@@ -625,10 +626,7 @@ void RendererOpenGL::DrawScreen(const Layout::FramebufferLayout& layout) {
     state_tracker.NotifyClipControl();
     state_tracker.NotifyAlphaTest();
 
-    program_manager.UseVertexShader(vertex_program.handle);
-    program_manager.UseGeometryShader(0);
-    program_manager.UseFragmentShader(fragment_program.handle);
-    program_manager.BindGraphicsPipeline();
+    program_manager.BindHostPipeline(pipeline.handle);
 
     glEnable(GL_CULL_FACE);
     if (screen_info.display_srgb) {
@@ -670,6 +668,8 @@ void RendererOpenGL::DrawScreen(const Layout::FramebufferLayout& layout) {
 
     glClear(GL_COLOR_BUFFER_BIT);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    program_manager.RestoreGuestPipeline();
 }
 
 bool RendererOpenGL::TryPresent(int timeout_ms) {
